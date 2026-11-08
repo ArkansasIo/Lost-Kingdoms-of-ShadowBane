@@ -1,8 +1,24 @@
 'use strict';
 const GBQ_ART_GALLERY = [
   { id: 'gbq_master_catalog', title: 'DARK FANTASY MASTER ASSET CATALOG' },
-  { id: 'gbq_ui_mockup_catalog', title: 'NEW UI / SPRITESHEET MOCKUP COLLECTION' }
+  { id: 'gbq_ui_mockup_catalog', title: 'NEW UI / SPRITESHEET MOCKUP COLLECTION' },
+  { id: 'gbq_reference_title', title: 'GB QUEST TITLE SCREEN REFERENCE', src: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CF4ED177-83D0-46D9-B88E-9C9BADBB982F-HQp5koURRXHe9VIjxyNQLHg5Jp0ry7.png' },
+  { id: 'gbq_reference_catalog', title: 'COMPLETE ASSET PACK REFERENCE', src: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/4352877E-889F-40F4-906D-B00E3E84961D.png-gmVnINuXmP4gdkUzvMIZHeh3P7ksiw.jpeg' },
+  { id: 'gbq_reference_systems', title: 'FULL SYSTEMS AND UI REFERENCE', src: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/B5E2A986-8590-4303-8486-0CB7F47C926A.png-72EVK7Fu4cRDu7MD6eGuassykjDgbC.jpeg' },
+  { id: 'gbq_reference_systems_alt', title: 'FULL SYSTEMS REFERENCE ALT', src: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/B5E2A986-8590-4303-8486-0CB7F47C926A.png-rJePJeZUBBC8AaXltUwfMUfKeBuNt6.jpeg' }
 ];
+const GBQ_REMOTE_ART = new Map();
+function gbqGalleryImage(entry) {
+  if (!entry.src) return IMG[entry.id];
+  if (!GBQ_REMOTE_ART.has(entry.id)) {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.src = entry.src;
+    GBQ_REMOTE_ART.set(entry.id, image);
+  }
+  const image = GBQ_REMOTE_ART.get(entry.id);
+  return image.complete && image.naturalWidth ? image : null;
+}
 class ArtGalleryScene {
   constructor() { this.opaque = true; this.page = 0; this.zoom = 1; this.panY = 0; }
   update() {
@@ -15,7 +31,7 @@ class ArtGalleryScene {
   }
   draw() {
     fill(0, 0, W, H, 0); hdr();
-    const entry = GBQ_ART_GALLERY[this.page], img = IMG[entry.id];
+    const entry = GBQ_ART_GALLERY[this.page], img = gbqGalleryImage(entry);
     text('MASTER ART CATALOG', 4, 14, 'gold');
     textR((this.page + 1) + '/' + GBQ_ART_GALLERY.length, W - 4, 14, 2);
     frame(2, 23, W - 4, 104);
