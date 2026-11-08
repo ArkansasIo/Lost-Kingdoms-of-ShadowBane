@@ -118,14 +118,14 @@ class Title {
       blit(packBackdrop, 0, 0);
       fill(0, 0, W, H, 'rgba(8,10,18,0.18)');
     } else {
-    const sky = ctx.createLinearGradient(0, 0, 0, H);
-    sky.addColorStop(0, '#234b70'); sky.addColorStop(.52, '#6d9bb0'); sky.addColorStop(1, '#b8d8a0');
-    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
-    const moon = ctx.createRadialGradient(132, 24, 2, 132, 24, 30);
-    moon.addColorStop(0, 'rgba(255,255,235,.95)'); moon.addColorStop(.55, 'rgba(216,232,198,.5)'); moon.addColorStop(1, 'rgba(184,216,160,0)');
-    ctx.fillStyle = moon; ctx.fillRect(98, 0, 62, 58);
-    ctx.fillStyle = '#f8f8ef'; ctx.beginPath(); ctx.arc(132, 23, 13, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#c9dcb6'; [[126,17,3,2],[135,20,4,3],[129,28,5,2],[138,29,2,2]].forEach(([x,y,w,h]) => ctx.fillRect(x,y,w,h));
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#09052a'); sky.addColorStop(.48, '#27105b'); sky.addColorStop(1, '#07182b');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+  const moon = ctx.createRadialGradient(132, 24, 2, 132, 24, 30);
+  moon.addColorStop(0, 'rgba(255,245,255,.98)'); moon.addColorStop(.42, 'rgba(216,162,255,.72)'); moon.addColorStop(1, 'rgba(118,36,190,0)');
+  ctx.fillStyle = moon; ctx.fillRect(98, 0, 62, 58);
+  ctx.fillStyle = '#f7e7ff'; ctx.beginPath(); ctx.arc(132, 23, 13, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#d5b2eb'; [[126,17,3,2],[135,20,4,3],[129,28,5,2],[138,29,2,2]].forEach(([x,y,w,h]) => ctx.fillRect(x,y,w,h));
     for (let i = 0; i < 42; i++) { const x = (i * 37 + 11) % W, y = (i * 19 + 5) % 76; ctx.globalAlpha = .35 + ((i + (this.t >> 3)) % 4) * .13; ctx.fillStyle = i % 4 ? '#e8f0dc' : '#fff0a8'; ctx.fillRect(x,y,i%9===0?2:1,1); }
     ctx.globalAlpha = 1;
     const ridge = (pts, color) => { ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(0,H); pts.forEach(([x,y])=>ctx.lineTo(x,y)); ctx.lineTo(W,H); ctx.closePath(); ctx.fill(); };
@@ -149,16 +149,16 @@ class Title {
     if (hero) { const p=sprFit(hero,34); blit(p,28,103-p.height+bob); }
     if (mage) { const p=sprFit(mage,29); blit(p,5,113-p.height-bob); }
     // Ornate title plaque and subtitle.
-    fill(17,3,126,39,'#f8f8ef'); frame(3,2,154,43);
-    textC('GB QUEST',80,5,3); textC('LOST KINGDOM',80,14,1);
-    textC('OF SHADOWBANE',80,21,2); textC('CHRONICLES',80,28,2); textC('LANTERNS OF AELMOOR',80,36,3);
-    // Menu plaque; keep every command visible and selectable.
-    const o=this.opts(), rowH=9, h=o.length*rowH+7, y0=57;
-    frame(48,y0,64,h,1);
-    o.forEach((label,j)=>{ const y=y0+4+j*rowH; if(j===this.i){ fill(52,y-1,56,8,'#285da8'); frame(51,y-2,58,9,1); text('>',54,y,'white'); } textC(label,82,y,j===this.i?'white':3); });
-    // Footer and version.
-    fill(0,134,W,10,'#285da8'); text('v'+BUILD.version,3,136,'white');
-    textC('GB QUEST STUDIO',80,136,'white');
+  fill(17,3,126,39,'rgba(12,7,29,.9)'); frame(3,2,154,43,1);
+  textC('GB QUEST',80,5,'#ffd35a'); textC('LOST KINGDOM',80,14,'#fff0b0');
+  textC('OF SHADOWBANE',80,21,'#fff0b0'); textC('CHRONICLES',80,28,'#fff0b0'); textC('LANTERNS OF AELMOOR',80,36,'#ffd35a');
+  // Menu plaque; keep every command visible and selectable.
+  const o=this.opts(), rowH=9, h=o.length*rowH+7, y0=57;
+  fill(48,y0,64,h,'rgba(8,5,20,.92)'); frame(48,y0,64,h,1);
+  o.forEach((label,j)=>{ const y=y0+4+j*rowH, icon=`au_menu_icons_${String(j).padStart(3,'0')}`; if(j===this.i){ fill(52,y-1,56,8,'#8e2ed1'); frame(51,y-2,58,9,1); text('>',54,y,'#ffd35a'); } if (IMG[icon]) blit(sprFit(icon, 7), 57, y - 1); textC(label,86,y,j===this.i?'#fff0b0':3); });
+  // Footer and version.
+  fill(0,134,W,10,'#12082d'); text('v'+BUILD.version,3,136,'#ffd35a');
+  textC('GB QUEST STUDIO',80,136,'#fff0b0');
     ctx.restore();
   }
 }
