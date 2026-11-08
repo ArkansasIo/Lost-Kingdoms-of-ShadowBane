@@ -3,6 +3,12 @@
 // The sliced reference sheets are installed as ap_* (world/game art) and au_* (UI kit).
 // Every route is deterministic and falls back to the existing sprite when pack art is unavailable.
 
+const GBQ_REFERENCE_SHEETS = Object.freeze({
+  title: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CF4ED177-83D0-46D9-B88E-9C9BADBB982F-HQp5koURRXHe9VIjxyNQLHg5Jp0ry7.png',
+  catalog: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/4352877E-889F-40F4-906D-B00E3E84961D.png-gmVnINuXmP4gdkUzvMIZHeh3P7ksiw.jpeg',
+  systems: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/B5E2A986-8590-4303-8486-0CB7F47C926A.png-72EVK7Fu4cRDu7MD6eGuassykjDgbC.jpeg',
+  systemsAlt: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/B5E2A986-8590-4303-8486-0CB7F47C926A.png-rJePJeZUBBC8AaXltUwfMUfKeBuNt6.jpeg',
+});
 const AP_COUNTS = Object.freeze({
   characters: 43, npcs: 33, enemies: 19, monsters: 24, weapons: 42, armor: 52,
   items: 54, terrain: 34, environment: 26, buildings: 27, dungeon: 48,
@@ -81,7 +87,7 @@ const BATTLE_BG_MODES = ['clean', 'painted', 'scenes'];
 const nextBattleBg = cur => BATTLE_BG_MODES[(BATTLE_BG_MODES.indexOf(cur) + 1) % BATTLE_BG_MODES.length];
 
 if (typeof globalThis !== 'undefined') globalThis.GBQAssetPack = {
-  AP_ITEM_ART, AP_GEM_ART, AP_MONSTERS, AP_PORTRAITS, AP_COUNTS, AU_COUNTS,
+  GBQ_REFERENCE_SHEETS, AP_ITEM_ART, AP_GEM_ART, AP_MONSTERS, AP_PORTRAITS, AP_COUNTS, AU_COUNTS,
   apPick, characterFor: apCharacterFor, npcFor: apNpcFor, mountFor: apMountFor,
   equipmentFor: apEquipmentFor, fieldArtFor: apFieldArtFor, portraitFor: apPortraitFor,
   apMonsterArt, apPortraitFor, apSceneFor, BATTLE_BG_MODES, nextBattleBg,

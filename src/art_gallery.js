@@ -2,10 +2,10 @@
 const GBQ_ART_GALLERY = [
   { id: 'gbq_master_catalog', title: 'DARK FANTASY MASTER ASSET CATALOG' },
   { id: 'gbq_ui_mockup_catalog', title: 'NEW UI / SPRITESHEET MOCKUP COLLECTION' },
-  { id: 'gbq_reference_title', title: 'GB QUEST TITLE SCREEN REFERENCE', src: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/CF4ED177-83D0-46D9-B88E-9C9BADBB982F-HQp5koURRXHe9VIjxyNQLHg5Jp0ry7.png' },
-  { id: 'gbq_reference_catalog', title: 'COMPLETE ASSET PACK REFERENCE', src: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/4352877E-889F-40F4-906D-B00E3E84961D.png-gmVnINuXmP4gdkUzvMIZHeh3P7ksiw.jpeg' },
-  { id: 'gbq_reference_systems', title: 'FULL SYSTEMS AND UI REFERENCE', src: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/B5E2A986-8590-4303-8486-0CB7F47C926A.png-72EVK7Fu4cRDu7MD6eGuassykjDgbC.jpeg' },
-  { id: 'gbq_reference_systems_alt', title: 'FULL SYSTEMS REFERENCE ALT', src: 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/B5E2A986-8590-4303-8486-0CB7F47C926A.png-rJePJeZUBBC8AaXltUwfMUfKeBuNt6.jpeg' }
+  { id: 'gbq_reference_title', title: 'GB QUEST TITLE SCREEN REFERENCE', src: GBQ_REFERENCE_SHEETS.title },
+  { id: 'gbq_reference_catalog', title: 'COMPLETE ASSET PACK REFERENCE', src: GBQ_REFERENCE_SHEETS.catalog },
+  { id: 'gbq_reference_systems', title: 'FULL SYSTEMS AND UI REFERENCE', src: GBQ_REFERENCE_SHEETS.systems },
+  { id: 'gbq_reference_systems_alt', title: 'FULL SYSTEMS REFERENCE ALT', src: GBQ_REFERENCE_SHEETS.systemsAlt }
 ];
 const GBQ_REMOTE_ART = new Map();
 function gbqGalleryImage(entry) {
