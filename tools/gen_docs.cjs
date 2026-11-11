@@ -62,7 +62,7 @@ fs.mkdirSync(path.join(ROOT, 'docs'), { recursive: true });
 }
 // ---------------------------------------------------------------- WORLD
 {
-  let s = `# World atlas: Valendria\n\n${stamp}\nThe interactive version is \`dist/atlas.html\` (pan, zoom, roads, sea lanes, route planner). In game, press **M** or the **ATLAS** button.\n\n`;
+  let s = `# World atlas: Valendria\n\n${stamp}\nThe interactive version is \`dist/atlas.html\` (pan, zoom, roads, sea lanes, route planner, and a WORLD switcher for the eight expansion worlds with their own maps). In game, press **M** or the **ATLAS** button.\n\n`;
   s += `## Regions (${REGIONS.length})\n\n` + table(['Region', 'Land', 'Biome', 'Levels', 'Act / Exp', 'Description'], REGIONS.map(r => [T(r.name), T((REGION_PINS[r.id] || [])[2]), r.biome, lv(r.lvl), r.exp ? 'Exp ' + r.exp : r.act ? 'Act ' + r.act : 'Hub', r.desc]));
   s += `\n## Zones (${ZONES.length})\n\n` + table(['Zone', 'Region', 'Continent', 'Sub-biome', 'Levels', 'Roads to'], ZONES.map(z => { const m = buildZone(z); return [T(z.name), T((REGIONS.find(r => r.id === z.region) || {}).name), T(continentOf(z)), T(z.sub), lv(z.lvl), Object.values(m.exits).map(e => T((ZONE_BY_ID[e.to] || {}).name || e.to)).join(', ')]; }));
   s += `\n## Biomes\n\n` + table(['Biome', 'Sub-biomes', 'Herb'], Object.keys(SUB_BIOMES).map(b => [T(b), SUB_BIOMES[b].map(T).join(', '), T(HERB_BY_BIOME[b])]));
