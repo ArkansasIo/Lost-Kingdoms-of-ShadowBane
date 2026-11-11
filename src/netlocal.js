@@ -54,6 +54,7 @@ const LocalRealm = {
         if (message.event === 'hello') L.peer = d.peer;
         else if (message.event === 'peers') { peers = d.peers || []; peerSubs.forEach(([cb]) => cb({ peers, left: d.left || [] })); }
         else if (message.event === 'msg') (handlers[d.topic] || []).forEach(cb => cb({ peer: d.peer, data: d.data }));
+        else if (message.event === 'guild' || message.event === 'finder') L.serverEvent(message.event, d);
       }, error => peerSubs.forEach(([, err]) => err && err(error)));
       L.es = { close };
     } else {
@@ -61,6 +62,7 @@ const LocalRealm = {
       L.es.addEventListener('hello', e => { const d = JSON.parse(e.data); L.peer = d.peer; });
       L.es.addEventListener('peers', e => { const d = JSON.parse(e.data); peers = d.peers; peerSubs.forEach(([cb]) => cb({ peers, left: d.left || [] })); });
       L.es.addEventListener('msg', e => { const d = JSON.parse(e.data); (handlers[d.topic] || []).forEach(cb => cb({ peer: d.peer, data: d.data })); });
+      for (const kind of ['guild', 'finder']) L.es.addEventListener(kind, e => { let d; try { d = JSON.parse(e.data); } catch (x) { return; } L.serverEvent(kind, d); });
       L.es.onerror = () => { if (L.es && L.es.readyState === 2) peerSubs.forEach(([, err]) => err && err()); };
     }
     const post = (path, body) => L.peer ? L.api(path, { method: 'POST', body: { peer: L.peer, ...body } }) : Promise.reject(new Error('connecting'));
@@ -74,6 +76,10 @@ const LocalRealm = {
     };
   },
   disconnect() { if (this.es) { this.es.close(); this.es = null; } this.peer = null; },
+  // realm guild and group finder notices (see src/realm_social.js); listeners: [kind, cb]
+  serverListeners: [],
+  onServerEvent(kind, cb) { this.serverListeners.push([kind, cb]); },
+  serverEvent(kind, d) { for (const [k, cb] of this.serverListeners) if (k === kind) { try { cb(d); } catch (e) { /* a broken listener must not stop the stream */ } } },
   // ---------------------------------------------------------------- cloud saves
   async listSaves() { return (await this.api('/api/saves')).slots; },
   async upload(slot) { const st = store.get(SLOT_KEYS[slot]); if (!st) throw new Error('That slot is empty on this device.'); await this.api(`/api/saves/${slot}`, { method: 'PUT', body: { state: st } }); },
