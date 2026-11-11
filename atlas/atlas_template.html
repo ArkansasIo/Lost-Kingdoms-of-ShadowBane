@@ -134,6 +134,10 @@ svg.z2 .clabel{display:none}
   #legend.open{bottom:44px}
 }
 @media (min-width:721px){body.info-open #zoom{right:calc(max(16px,env(safe-area-inset-right,0px)) + 372px)}body.info-open #legend{display:none}}
+.worldpick{display:flex;align-items:center;gap:6px;font-size:9px;color:var(--muted);flex:none}
+.worldpick select{font:inherit;font-size:10px;padding:5px 6px;background:#0e0c09;color:var(--parch);border:1px solid #5a4528;border-radius:6px;max-width:190px;cursor:pointer}
+#mapImg.pixel{image-rendering:pixelated}
+@media (max-width:720px){.worldpick span{display:none}.worldpick select{max-width:140px}}
 body.embedded #zoom{bottom:calc(env(safe-area-inset-bottom,0px) + 44px)}
 </style>
 
@@ -144,7 +148,7 @@ body.embedded #zoom{bottom:calc(env(safe-area-inset-bottom,0px) + 44px)}
     <radialGradient id="vig" cx="50%" cy="50%" r="70%"><stop offset="70%" stop-color="#000" stop-opacity="0"/><stop offset="100%" stop-color="#000" stop-opacity=".55"/></radialGradient>
   </defs>
   <g id="world">
-    <image href="__MAP__" x="0" y="0" width="1592" height="988" preserveAspectRatio="none"/>
+    <image id="mapImg" href="__MAP__" x="0" y="0" width="1592" height="988" preserveAspectRatio="none"/>
     <rect width="1592" height="988" fill="url(#vig)" pointer-events="none"/>
     <g id="gCont"></g>
     <g id="gEdges"></g>
@@ -156,11 +160,12 @@ body.embedded #zoom{bottom:calc(env(safe-area-inset-bottom,0px) + 44px)}
 </div>
 
 <header id="bar">
-  <div class="brand"><b>ATLAS OF VALENDRIA</b><small class="px">LOST KINGDOM OF SHADOWBANE CHRONICLES · <span id="ver"></span></small></div>
+  <div class="brand"><b id="brandName">ATLAS OF VALENDRIA</b><small class="px">LOST KINGDOM OF SHADOWBANE CHRONICLES · <span id="ver"></span></small></div>
   <div class="search">
     <input id="q" type="search" placeholder="Find a zone, boss, dungeon…" autocomplete="off" aria-label="Search the atlas">
     <div id="results" hidden></div>
   </div>
+  <label class="worldpick px" title="Switch world"><span>WORLD</span><select id="worldSel" aria-label="Switch world"></select></label>
   <div class="chips px" id="chips"></div>
   <button id="closeAtlas" class="btn px" style="width:auto;padding:0 12px;font-size:10px;margin-left:auto" aria-label="Back to game">BACK TO GAME ✕</button>
 </header>
@@ -180,6 +185,8 @@ body.embedded #zoom{bottom:calc(env(safe-area-inset-bottom,0px) + 44px)}
 
 <script>
 const DATA = __DATA__;
+// painted maps for the expansion worlds that are not on Valendria's map: { [expansion number]: data URI }
+const WORLD_MAPS = __WORLDMAPS__;
 const W=1592,H=988, NS='http://www.w3.org/2000/svg';
 const BIOME={meadow:['#8bc34a','Meadow'],marsh:['#6b8e4e','Marsh'],snow:['#e8f4ff','Snow'],badlands:['#d08a4a','Badlands'],coast:['#4fc3c7','Coast'],crystal:['#b48cff','Crystal'],volcanic:['#ff5a36','Volcanic'],jungle:['#2fae5f','Jungle'],dusk:['#7a5c9e','Dusk']};
 const Z={}; DATA.zones.forEach(z=>Z[z.id]=z);
@@ -207,20 +214,20 @@ function curve(a,b,bow){const mx=(a.x+b.x)/2,my=(a.y+b.y)/2,dx=b.x-a.x,dy=b.y-a.
 /* continent names */
 const CONT={};DATA.zones.forEach(z=>{(CONT[z.continent]=CONT[z.continent]||[]).push(z)});
 for(const c in CONT){const zs=CONT[c];const x=zs.reduce((s,z)=>s+z.x,0)/zs.length,y=Math.min(...zs.map(z=>z.y))-48;
-  el('text',{x,y:Math.max(60,y),'text-anchor':'middle',class:'clabel'},$('#gCont')).textContent=title(c)}
+  el('text',{x,y:Math.max(60,y),'text-anchor':'middle',class:'clabel','data-w':zs[0].world||0},$('#gCont')).textContent=title(c)}
 
 /* edges */
 const gE=$('#gEdges');
 const cases=el('g',{},gE), roads=el('g',{},gE), seas=el('g',{},gE);
-DATA.edges.forEach(e=>{const a=Z[e.a],b=Z[e.b];if(!a||!b)return;
-  const ve={'vector-effect':'non-scaling-stroke'};
+DATA.edges.forEach(e=>{const a=Z[e.a],b=Z[e.b];if(!a||!b||e.voyage)return; // voyages join two different maps: listed, not drawn
+  const ve={'vector-effect':'non-scaling-stroke','data-w':a.world||0};
   if(e.sea){el('path',{d:curve(a,b,.22),class:e.ship?'ship':'sea',...ve},seas)}
   else{const d=curve(a,b,.08);el('path',{d,class:'roadcase',...ve},cases);el('path',{d,class:'road',...ve},roads)}});
 
 /* region labels */
 const regC={};DATA.zones.forEach(z=>{(regC[z.region]=regC[z.region]||[]).push(z)});
 for(const id in regC){const zs=regC[id];const x=zs.reduce((s,z)=>s+z.x,0)/zs.length,y=zs.reduce((s,z)=>s+z.y,0)/zs.length;
-  const t=el('text',{x,y:y-22,'text-anchor':'middle',class:'rlabel'},$('#gRegions'));t.textContent=title(R[id]?.name||id)}
+  const t=el('text',{x,y:y-22,'text-anchor':'middle',class:'rlabel','data-w':zs[0].world||0},$('#gRegions'));t.textContent=title(R[id]?.name||id)}
 
 /* icons */
 const ICO={
@@ -232,7 +239,7 @@ const ICO={
 /* zones */
 const gZ=$('#gZones'), zoneEl={};
 DATA.zones.forEach(z=>{
-  const g=el('g',{class:'zone',tabindex:0,role:'button','aria-label':title(z.name)},gZ); g.dataset.id=z.id; zoneEl[z.id]=g;
+  const g=el('g',{class:'zone',tabindex:0,role:'button','aria-label':title(z.name),'data-w':z.world||0},gZ); g.dataset.id=z.id; zoneEl[z.id]=g;
   const tier=Math.min(4,Math.floor(Math.log10(Math.max(1,z.lvl[1]))*1.6));
   if(z.town){el('rect',{x:z.x-8,y:z.y-8,width:16,height:16,transform:`rotate(45 ${z.x} ${z.y})`,fill:'var(--town)',stroke:'#1a1208','stroke-width':1.8},g);
     el('circle',{cx:z.x,cy:z.y,r:3,fill:'#1a1208'},g);el('circle',{cx:z.x,cy:z.y,r:11,fill:'transparent',class:'pin',stroke:'none'},g)}
@@ -314,7 +321,7 @@ const info=$('#info');
 function closeInfo(){info.hidden=true;document.body.classList.remove('info-open');if(sel)zoneEl[sel]?.classList.remove('sel');sel=null;setHash('')}
 function setHash(h){try{history.replaceState(null,'',h?'#'+h:location.pathname+location.search)}catch(e){}}
 const catName={world:'World',arc:'Arc',dungeon:'Dungeon',raid:'Raid',trial:'Trial',tower:'Tower'};
-function select(id,fly){const z=Z[id];if(!z)return;if(sel)zoneEl[sel]?.classList.remove('sel');sel=id;zoneEl[id].classList.add('sel');setHash(id.replace(/_/g,'-'));
+function select(id,fly){const z=Z[id];if(!z)return;if((z.world||0)!==curWorld)setWorld(z.world||0,true);if(sel)zoneEl[sel]?.classList.remove('sel');sel=id;zoneEl[id].classList.add('sel');setHash(id.replace(/_/g,'-'));
   const r=R[z.region]||{};const nb=[...new Set(ADJ[id])].map(n=>Z[n]).filter(Boolean);
   const exp=z.exp?DATA.expansions.find(x=>x.n===z.exp):null;
   info.innerHTML=`<button class="btn x" aria-label="Close">×</button>
@@ -323,7 +330,7 @@ function select(id,fly){const z=Z[id];if(!z)return;if(sel)zoneEl[sel]?.classList
   <div class="stats px"><div class="stat"><b>${lv(z.lvl)}</b><small>LEVEL</small></div><div class="stat"><b style="color:${BIOME[z.biome][0]}">${BIOME[z.biome][1]}</b><small>BIOME</small></div>
   <div class="stat"><b>${z.town?'TOWN':exp?'EXP '+exp.n:'ACT '+(z.act||'—')}</b><small>${z.town?'SAFE ZONE':exp?esc(exp.name):'STORY'}</small></div></div>
   ${r.desc?`<p class="q" style="margin:10px 0 0"><i>${esc(r.desc)}</i></p>`:''}
-  <h3 class="px">ROADS LEAD TO</h3><ul>${nb.map(n=>`<li><a class="go" data-id="${n.id}">${esc(title(n.name))}</a> <span class="px" style="font-size:9px;color:var(--muted)">LV ${lv(n.lvl)}${n.continent!==z.continent?' · BY SEA':''}</span></li>`).join('')||'<li>—</li>'}</ul>
+  <h3 class="px">ROADS LEAD TO</h3><ul>${nb.map(n=>`<li><a class="go" data-id="${n.id}">${esc(title(n.name))}</a> <span class="px" style="font-size:9px;color:var(--muted)">LV ${lv(n.lvl)}${(n.world||0)!==(z.world||0)?' · VOYAGE TO '+esc(worldName(n.world||0)):n.continent!==z.continent?' · BY SEA':''}</span></li>`).join('')||'<li>—</li>'}</ul>
   ${(z.dungeon||z.raid)?`<h3 class="px">INSTANCES</h3><ul>${z.dungeon?`<li><span style="color:var(--dun)">◆</span> ${esc(title(z.dungeon))} <span class="tag px" style="color:var(--dun)">DUNGEON · 4P</span></li>`:''}${z.raid?`<li><span style="color:var(--raid)">♛</span> ${esc(title(z.raid))} <span class="tag px" style="color:var(--raid)">RAID · 12P</span></li>`:''}</ul>`:''}
   ${z.bosses.length?`<h3 class="px">BOSSES</h3><ul>${z.bosses.map(b=>`<li>${esc(title(b.name))}${b.title?` <i style="color:var(--muted)">— ${esc(title(b.title))}</i>`:''}<br><span class="tag px" style="color:${b.cat==='arc'?'var(--raid)':'var(--boss)'};margin:0">${catName[b.cat]||b.cat} · LV ${b.lvl}</span> <span class="px" style="font-size:9px;color:var(--muted)">${b.mechs.map(m=>m.toUpperCase()).join(' · ')}</span></li>`).join('')}</ul>`:''}
   ${z.areas?.length?`<h3 class="px">AREAS</h3><p class="q" style="margin:0">${z.areas.map(a=>esc(title(a))).join(' · ')}</p>`:''}
@@ -345,10 +352,13 @@ function showRouteBar(html){const b=$('#routeBar');b.innerHTML=`<span>${html}</s
 function route(a,b){const prev={[a]:null},q=[a];while(q.length){const c=q.shift();if(c===b)break;for(const n of ADJ[c])if(!(n in prev)){prev[n]=c;q.push(n)}}
   if(!(b in prev))return showRouteBar('No road connects these places.');
   const path=[];for(let c=b;c;c=prev[c])path.unshift(c);clearRoute();
-  for(let i=1;i<path.length;i++){const p=Z[path[i-1]],n=Z[path[i]];el('path',{d:curve(p,n,p.continent!==n.continent?.22:.08),class:'route','vector-effect':'non-scaling-stroke'},$('#gRoute'))}
-  const sea=path.slice(1).filter((p,i)=>Z[p].continent!==Z[path[i]].continent).length;
-  showRouteBar(`<b>${esc(title(Z[a].name))}</b> → <b>${esc(title(Z[b].name))}</b>: ${path.length-1} legs${sea?` (${sea} by sea)`:''}`);
-  const xs=path.map(p=>Z[p].x),ys=path.map(p=>Z[p].y);const w=Math.max(300,(Math.max(...xs)-Math.min(...xs))*1.4,(Math.max(...ys)-Math.min(...ys))*1.4*W/H);
+  for(let i=1;i<path.length;i++){const p=Z[path[i-1]],n=Z[path[i]];if((p.world||0)!==(n.world||0))continue;el('path',{d:curve(p,n,p.continent!==n.continent?.22:.08),class:'route','vector-effect':'non-scaling-stroke','data-w':p.world||0},$('#gRoute'))}
+  const voy=path.slice(1).filter((p,i)=>(Z[p].world||0)!==(Z[path[i]].world||0)).length;
+  const sea=path.slice(1).filter((p,i)=>(Z[p].world||0)===(Z[path[i]].world||0)&&Z[p].continent!==Z[path[i]].continent).length;
+  const extra=[sea?`${sea} by sea`:'',voy?`${voy} voyage${voy>1?'s':''} between worlds`:''].filter(Boolean).join(', ');
+  showRouteBar(`<b>${esc(title(Z[a].name))}</b> → <b>${esc(title(Z[b].name))}</b>: ${path.length-1} legs${extra?` (${extra})`:''}`);
+  if((Z[b].world||0)!==curWorld)setWorld(Z[b].world||0,true);
+  const onMap=path.filter(p=>(Z[p].world||0)===(Z[b].world||0)),xs=onMap.map(p=>Z[p].x),ys=onMap.map(p=>Z[p].y);const w=Math.max(onMap.length<2?520:300,(Math.max(...xs)-Math.min(...xs))*1.4,(Math.max(...ys)-Math.min(...ys))*1.4*W/H);
   flyTo((Math.max(...xs)+Math.min(...xs))/2,(Math.max(...ys)+Math.min(...ys))/2,w);select(b)}
 
 /* ---------- search ---------- */
@@ -373,6 +383,21 @@ if(ST){document.body.classList.add('embedded');
   DATA.zones.forEach(z=>{if(!(ST.visited||{})[z.id])zoneEl[z.id].classList.add('unk')});
   const h=Z[ST.here];if(h){el('circle',{cx:h.x,cy:h.y,r:15,class:'here','vector-effect':'non-scaling-stroke'},zoneEl[h.id]);
     const t=el('text',{x:h.x,y:h.y-20,'text-anchor':'middle',class:'zlabel',style:'fill:#ff6b6b'},zoneEl[h.id]);t.textContent='YOU ARE HERE'}}
+/* ---------- worlds: Valendria plus the expansion worlds with their own maps ---------- */
+const WORLDS=(DATA.worlds||[{n:0,name:'VALENDRIA'}]).filter(w=>!w.n||WORLD_MAPS[w.n]);
+function worldName(n){const w=(DATA.worlds||[]).find(x=>x.n===n);return w?w.name:'VALENDRIA'}
+const mapImg=$('#mapImg'),VAL_MAP=mapImg.getAttribute('href');let curWorld=0;
+const wsel=$('#worldSel');
+WORLDS.forEach(w=>{const o=document.createElement('option');o.value=w.n;o.textContent=(w.n?w.n+'. ':'')+title(w.name)+(w.lvl?` · LV ${lv(w.lvl)}`:'');wsel.appendChild(o)});
+if(WORLDS.length<2)wsel.closest('.worldpick').hidden=true;
+function setWorld(n,keepSel){if(!WORLDS.some(w=>w.n===n))n=0;curWorld=n;wsel.value=String(n);
+  mapImg.setAttribute('href',n?WORLD_MAPS[n]:VAL_MAP);mapImg.classList.toggle('pixel',!!n);
+  document.querySelectorAll('#world [data-w]').forEach(e=>{e.style.display=(+e.dataset.w===n||+e.getAttribute('data-w')===n)?'':'none'});
+  $('#brandName').textContent='ATLAS OF '+(n?worldName(n):'VALENDRIA');
+  $('#map').setAttribute('aria-label',`Map of ${title(worldName(n))} with zones and roads`);
+  if(!keepSel){if(sel&&(Z[sel].world||0)!==n)closeInfo();flyTo(W/2,H/2,W)}}
+wsel.onchange=()=>setWorld(+wsel.value);
+setWorld(ST&&Z[ST.here]?(Z[ST.here].world||0):0,true);
 apply();barH();
 const hz=()=>location.hash.slice(1).replace(/-/g,'_');const h0=hz();if(Z[h0])select(h0,true);else if(ST&&Z[ST.here]){if(innerHeight>560)select(ST.here,true);else flyTo(Z[ST.here].x,Z[ST.here].y,Math.min(W,520))}
 addEventListener('hashchange',()=>{const h=hz();if(Z[h]&&h!==sel)select(h,true)});
