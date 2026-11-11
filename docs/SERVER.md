@@ -6,17 +6,17 @@ Lost Kingdom of Shadowbane Chronicles runs in three network modes:
 |---|---|---|
 | **Offline** | TITLE > ONLINE > MODE: OFFLINE, or SETTINGS > NETWORK | Solo play with AI companions and the simulated NPC realm. Nothing leaves your device. |
 | **Online (shared page)** | open the published claude.ai page | Presence, chat, host-server battles and the leaderboard, through the page's built-in room and database |
-| **Online (realm server)** | run `server/server.cjs` and open `http://localhost:8787` | Accounts (register, log in, log out), cloud saves, the realm leaderboard, and the same live play relayed by your own server |
+| **Online (realm server)** | run `npm run server` (`backend/server.cjs`) and open `http://localhost:8787` | Accounts (register, log in, log out), cloud saves, the realm leaderboard, and the same live play relayed by your own server |
 
 ## Run the realm server
 
 ```sh
 python3 tools/build.py          # build the client first
-npm run server                  # = node server/server.cjs  -> http://127.0.0.1:8787
-PORT=9000 HOST=0.0.0.0 REALM="ARKANSAS REALM" node server/server.cjs   # LAN play
+npm run server                  # = node backend/server.cjs  -> http://127.0.0.1:8787
+PORT=9000 HOST=0.0.0.0 REALM="ARKANSAS REALM" node backend/server.cjs   # LAN play
 ```
 
-It needs Node 18+ and has no dependencies. Data is kept in `server/data/realm.json`, written atomically once a second and on shutdown; set `GBQ_DATA` to move it. The server serves the client on the same origin: `/` (handheld), `/fullscreen` and `/atlas`. For play over the internet, put it behind an HTTPS reverse proxy.
+It needs Node 18+ and has no dependencies. Data is kept in `server/data/realm.json`, written atomically once a second and on shutdown; set `GBQ_DATA` to move it. The server serves the client on the same origin: `/` (handheld), `/fullscreen` and `/atlas`. These pages are gzipped once and kept in memory, and browsers revalidate them with an ETag, so a reload does not download the ~67 MB game again (`GBQ_WARM_STATIC=0` skips compressing them at startup). `node server/server.cjs` still works; it loads `backend/server.cjs`. For play over the internet, put it behind an HTTPS reverse proxy.
 
 ### Desktop launcher connection
 
@@ -118,7 +118,7 @@ Every guild route answers with your guild as you may see it. Other members get a
 
 | Mode | When | Listings live in |
 |---|---|---|
-| `realm` | the game is served by `server/server.cjs` and you are logged in | the server (`db.market`); the server pays sellers 95% into `db.proceeds` |
+| `realm` | the game is served by the realm server (`backend/server.cjs`) and you are logged in | the server (`db.market`); the server pays sellers 95% into `db.proceeds` |
 | `page` | a shared claude.ai page | the page's shared database, collection `market` |
 | `local` | offline | a simulated market: NPC sellers (gear, tiered materials, consumables) and NPC buyers |
 

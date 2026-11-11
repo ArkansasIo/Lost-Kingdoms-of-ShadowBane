@@ -7,12 +7,12 @@
 //   - relays live play: presence, chat, and the host-server battle topics (srv_*), using
 //     Server-Sent Events for server->client and small JSON POSTs for client->server
 //
-//   node server/server.cjs                 -> http://127.0.0.1:8787
-//   PORT=9000 HOST=0.0.0.0 node server/server.cjs   (LAN play; put it behind HTTPS for the internet)
+//   node backend/server.cjs                -> http://127.0.0.1:8787   (npm run server; server/server.cjs still works)
+//   PORT=9000 HOST=0.0.0.0 node backend/server.cjs   (LAN play; put it behind HTTPS for the internet)
 //
 // Data lives in server/data/realm.json (written atomically). Delete it to reset the realm.
 'use strict';
-const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto'), { URL } = require('url');
+const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto'), zlib = require('zlib'), { URL } = require('url');
 const { createDebugLog, createAuditLog } = require('./logs.cjs');
 const Guilds = require('./guilds.cjs'), Finder = require('./groupfinder.cjs');
 
@@ -179,12 +179,39 @@ function body(req, limit = MAX_BODY) {
     req.on('error', reject);
   });
 }
-function serveFile(res, file, type) {
-  fs.readFile(path.join(ROOT, file), (e, buf) => {
-    if (e) { res.writeHead(404, SEC); return res.end('Not built yet: run python3 tools/build.py'); }
-    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache', ...SEC }); res.end(buf);
+// The game pages are large single files (dist/gbquest.html is ~67 MB of inlined art). Reading one from disk on every
+// request made each page load slow, so each file is gzipped once and kept in memory until it changes on disk, and
+// browsers get an ETag: a reload answers 304 Not Modified instead of sending the whole game again.
+// Clients that do not accept gzip are streamed the file from disk.
+const staticCache = new Map(); // file -> { key, etag, gz: Promise<Buffer> }
+function staticEntry(file, st) {
+  const key = st.size + ':' + st.mtimeMs, hit = staticCache.get(file);
+  if (hit && hit.key === key) return hit;
+  const entry = { key, etag: '"' + st.size.toString(36) + '-' + Math.floor(st.mtimeMs).toString(36) + '"' };
+  entry.gz = fs.promises.readFile(path.join(ROOT, file)).then(buf => new Promise((ok, no) => zlib.gzip(buf, { level: 6 }, (e, gz) => e ? no(e) : ok(gz))));
+  entry.gz.catch(() => { if (staticCache.get(file) === entry) staticCache.delete(file); });
+  staticCache.set(file, entry);
+  return entry;
+}
+function serveFile(req, res, file, type) {
+  const full = path.join(ROOT, file);
+  fs.stat(full, async (e, st) => {
+    if (e || !st.isFile()) { res.writeHead(404, SEC); return res.end('Not built yet: run python3 tools/build.py'); }
+    const entry = staticEntry(file, st), head = { 'Content-Type': type, 'Cache-Control': 'no-cache', ETag: entry.etag, Vary: 'Accept-Encoding', ...SEC };
+    const inm = String(req.headers['if-none-match'] || '');
+    if (inm && inm.split(',').some(t => t.trim().replace(/^W\//, '') === entry.etag)) { res.ttfbMs = res.elapsed(); res.writeHead(304, head); return res.end(); }
+    if (/\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+      let gz; try { gz = await entry.gz; } catch (err) { res.writeHead(500, SEC); return res.end('Could not read file'); }
+      res.ttfbMs = res.elapsed(); res.writeHead(200, { ...head, 'Content-Encoding': 'gzip', 'Content-Length': gz.length });
+      return res.end(req.method === 'HEAD' ? undefined : gz);
+    }
+    res.ttfbMs = res.elapsed(); res.writeHead(200, { ...head, 'Content-Length': st.size });
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(full).on('error', () => res.destroy()).pipe(res);
   });
 }
+// gzip the game pages at startup so the first visitor does not wait for it
+function warmStatic() { for (const file of new Set(['dist/gbquest.html', 'dist/gbquest-fullscreen.html', 'dist/atlas.html'])) fs.stat(path.join(ROOT, file), (e, st) => { if (!e && st.isFile()) staticEntry(file, st).gz.catch(() => {}); }); }
 const STATIC = { '/': 'dist/gbquest.html', '/fullscreen': 'dist/gbquest-fullscreen.html', '/atlas': 'dist/atlas.html', '/dist/atlas.html': 'dist/atlas.html', '/admin': 'admin/controlplane.html', '/admin/': 'admin/controlplane.html', '/admin/controlplane.js': 'admin/controlplane.js' };
 
 // ---------------------------------------------------------------- routes
@@ -198,20 +225,25 @@ const server = http.createServer(async (req, res) => {
   // every response carries X-Request-Id so a player's error report can be matched to the debug log
   const reqId = crypto.randomBytes(6).toString('hex'), t0 = process.hrtime.bigint();
   res.setHeader('X-Request-Id', reqId);
+  res.elapsed = () => Number(process.hrtime.bigint() - t0) / 1e6;
   let who = null; // account name once the session is known
   res.on('finish', () => {
     if (p === '/api/stream') return; // long-lived; logged on open/close instead
-    const ms = Number(process.hrtime.bigint() - t0) / 1e6, line = { reqId, method: req.method, path: p, status: res.statusCode, ms: +ms.toFixed(1), ip };
+    const ms = res.elapsed(), line = { reqId, method: req.method, path: p, status: res.statusCode, ms: +ms.toFixed(1), ip };
     if (who) line.account = who;
+    // for game pages, downloading tens of megabytes takes as long as the player's connection needs; only the time
+    // the server took to start answering says whether the server was slow
+    if (res.ttfbMs != null) line.ttfbMs = +res.ttfbMs.toFixed(1);
+    const serverMs = res.ttfbMs != null ? res.ttfbMs : ms;
     if (res.statusCode >= 500) log.error('request failed', line);
-    else if (ms > SLOW_MS) log.warn('slow request', line);
+    else if (serverMs > SLOW_MS) log.warn('slow request', line);
     else log.debug('request', line);
   });
   const A = event => audit.record({ ip, reqId, ...event }); // audit with request context
   try {
     // Hide the control plane and deny every admin API route unless explicitly enabled.
     if (!ADMIN_ENABLED && (p === '/admin' || p.startsWith('/admin/') || p.startsWith('/api/admin/'))) return json(res, 404, { error: 'Not found.' });
-    if (req.method === 'GET' && STATIC[p]) return serveFile(res, STATIC[p], p.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8');
+    if ((req.method === 'GET' || req.method === 'HEAD') && STATIC[p]) return serveFile(req, res, STATIC[p], p.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8');
     if (!p.startsWith('/api/')) { res.writeHead(404, SEC); return res.end('Not found'); }
 
     if (p === '/api/health') return json(res, 200, { ok: true, game: 'LOST KINGDOM OF SHADOWBANE CHRONICLES', realm: db.realmSettings.realmName, maintenance: db.realmSettings.maintenance, players: clients.size, accounts: Object.keys(db.accounts).length, realms: REALMS });
@@ -741,5 +773,6 @@ server.on('error', e => { log.error('server error', e); if (e.code === 'EADDRINU
 server.listen(PORT, HOST, () => {
   log.info(`LOST KINGDOM OF SHADOWBANE CHRONICLES realm server on http://${HOST}:${PORT}`, { accounts: Object.keys(db.accounts).length, logLevel: log.level, logDir: LOG_DIR, auditSeq: audit.seq });
   audit.record({ action: 'server.start', actor: 'system', details: { host: HOST, port: PORT, pid: process.pid } });
+  if (process.env.GBQ_WARM_STATIC !== '0') setTimeout(warmStatic, 1000).unref();
 });
 module.exports = server;

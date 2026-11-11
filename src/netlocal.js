@@ -1,6 +1,6 @@
 'use strict';
 // ================================================================ REALM SERVER CLIENT (accounts + live play)
-// When the game is served by server/server.cjs (http://localhost:8787), this connects to it:
+// When the game is served by the realm server, backend/server.cjs (http://localhost:8787), this connects to it:
 // accounts (register / login / logout), cloud saves, the leaderboard, and a "room" with the same
 // shape the game already uses (presence, onPeers, on(topic), emit), carried over Server-Sent Events.
 // When there is no realm server (e.g. a shared claude.ai page), the game falls back to the page's
