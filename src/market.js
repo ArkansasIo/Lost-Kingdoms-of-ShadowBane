@@ -1,6 +1,6 @@
 // ================================================================ TRADING HUB (auction house) + DIRECT PLAYER TRADE
 // The auction house works in three backends, picked automatically:
-//   realm   the local realm server (server/server.cjs /api/market): server-held listings, 5% cut, proceeds
+//   realm   the local realm server (backend/server.cjs /api/market): server-held listings, 5% cut, proceeds
 //   page    a shared claude.ai page: listings live in the page's shared database (collection "market")
 //   local   offline: a simulated market of NPC sellers and buyers
 // Fees (gold sinks): a deposit of 5% of the item value when you list (kept even if it does not sell)

@@ -21,6 +21,7 @@
 | [STORY.md](STORY.md) | Prologue, 12 acts, 50 chapters, side quest templates, expansions, factions |
 | [CHARACTERS.md](CHARACTERS.md) | Attributes, species, classes and features, backgrounds, spells, difficulty, level curve |
 | [CONTENT_CATALOG.md](CONTENT_CATALOG.md) | 400 creatures, 350 bosses, dungeons, raids, trials, tower, gear, achievements |
+| [DATABASE.md](DATABASE.md) | MySQL schema and seed data generated from the game catalogues; realm.json migration |
 | [WORLD_ATLAS.md](WORLD_ATLAS.md) | 28 regions, 90 zones with their roads, biomes and herbs |
 | **Design notes** | |
 | [MMORPG_DESIGN.md](MMORPG_DESIGN.md) · [MMORPG_FEATURE_MATRIX.md](MMORPG_FEATURE_MATRIX.md) · [DND5E_WOW_SYSTEMS.md](DND5E_WOW_SYSTEMS.md) · [RULES_IMPLEMENTATION.md](RULES_IMPLEMENTATION.md) | MMO and rules design |

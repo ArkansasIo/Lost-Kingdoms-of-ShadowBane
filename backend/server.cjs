@@ -7,13 +7,14 @@
 //   - relays live play: presence, chat, and the host-server battle topics (srv_*), using
 //     Server-Sent Events for server->client and small JSON POSTs for client->server
 //
-//   node server/server.cjs                 -> http://127.0.0.1:8787
-//   PORT=9000 HOST=0.0.0.0 node server/server.cjs   (LAN play; put it behind HTTPS for the internet)
+//   node backend/server.cjs                -> http://127.0.0.1:8787   (npm run server; server/server.cjs still works)
+//   PORT=9000 HOST=0.0.0.0 node backend/server.cjs   (LAN play; put it behind HTTPS for the internet)
 //
 // Data lives in server/data/realm.json (written atomically). Delete it to reset the realm.
 'use strict';
-const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto'), { URL } = require('url');
+const http = require('http'), fs = require('fs'), path = require('path'), crypto = require('crypto'), zlib = require('zlib'), { URL } = require('url');
 const { createDebugLog, createAuditLog } = require('./logs.cjs');
+const Guilds = require('./guilds.cjs'), Finder = require('./groupfinder.cjs');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = +process.env.PORT || 8787, HOST = process.env.HOST || '127.0.0.1';
@@ -42,10 +43,12 @@ catch (e) { if (e.code === 'ENOENT') log.info('no realm data yet; starting a new
 db.friendships ||= {}; db.friendRequests ||= {}; db.inviteCodes ||= {};
 db.bans ||= {}; db.adminAudit ||= [];
 db.staffRoles ||= {};
+Guilds.ensure(db);
 db.realmSettings = Object.assign({
   realmName: process.env.REALM || 'LOCAL REALM', maintenance: false, registrationOpen: true,
   chatEnabled: true, marketplaceEnabled: true, invitesEnabled: true,
   socialEnabled: true, cloudSavesEnabled: true, leaderboardEnabled: true, livePlayEnabled: true,
+  guildsEnabled: true, groupFinderEnabled: true,
   maxListingsPerPlayer: 20, maxInviteCodesPerPlayer: 5, inviteTtlMinutes: 15,
   chatMessagesPer10Seconds: 5, maxSaveBytes: MAX_SAVE,
 }, db.realmSettings || {});
@@ -146,6 +149,19 @@ function broadcastPeers(left = []) {
   for (const [peer, c] of clients) send(c.res, 'peers', { peers: list.map(p => ({ ...p, sameTab: p.peer === peer })), left: left.map(p => ({ peer: p })) });
 }
 setInterval(() => { for (const c of clients.values()) c.res.write(': ping\n\n'); }, 25000).unref();
+// push a server event to every live tab of one account (guild and group finder notices)
+function sendToAccount(uid, event, data) { for (const c of clients.values()) if (c.uid === uid) send(c.res, event, data); }
+
+// ---------------------------------------------------------------- group finder (in memory; see backend/groupfinder.cjs)
+const finder = Finder.createFinder();
+function finderEvents(events) {
+  for (const ev of events || []) {
+    if (ev.type === 'ready-check') for (const m of ev.check.members) sendToAccount(m.uid, 'finder', ev);
+    else if (ev.type === 'ready-failed') { for (const u of ev.requeued) sendToAccount(u, 'finder', ev); for (const u of ev.dropped || []) sendToAccount(u, 'finder', { type: 'dropped', check: ev.check }); }
+    else if (ev.type === 'grouped') for (const m of ev.group.members) sendToAccount(m.uid, 'finder', ev);
+  }
+}
+setInterval(() => finderEvents(Finder.tick(finder)), 5000).unref();
 
 // ---------------------------------------------------------------- http helpers
 const SEC = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'SAMEORIGIN' };
@@ -163,12 +179,39 @@ function body(req, limit = MAX_BODY) {
     req.on('error', reject);
   });
 }
-function serveFile(res, file, type) {
-  fs.readFile(path.join(ROOT, file), (e, buf) => {
-    if (e) { res.writeHead(404, SEC); return res.end('Not built yet: run python3 tools/build.py'); }
-    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache', ...SEC }); res.end(buf);
+// The game pages are large single files (dist/gbquest.html is ~67 MB of inlined art). Reading one from disk on every
+// request made each page load slow, so each file is gzipped once and kept in memory until it changes on disk, and
+// browsers get an ETag: a reload answers 304 Not Modified instead of sending the whole game again.
+// Clients that do not accept gzip are streamed the file from disk.
+const staticCache = new Map(); // file -> { key, etag, gz: Promise<Buffer> }
+function staticEntry(file, st) {
+  const key = st.size + ':' + st.mtimeMs, hit = staticCache.get(file);
+  if (hit && hit.key === key) return hit;
+  const entry = { key, etag: '"' + st.size.toString(36) + '-' + Math.floor(st.mtimeMs).toString(36) + '"' };
+  entry.gz = fs.promises.readFile(path.join(ROOT, file)).then(buf => new Promise((ok, no) => zlib.gzip(buf, { level: 6 }, (e, gz) => e ? no(e) : ok(gz))));
+  entry.gz.catch(() => { if (staticCache.get(file) === entry) staticCache.delete(file); });
+  staticCache.set(file, entry);
+  return entry;
+}
+function serveFile(req, res, file, type) {
+  const full = path.join(ROOT, file);
+  fs.stat(full, async (e, st) => {
+    if (e || !st.isFile()) { res.writeHead(404, SEC); return res.end('Not built yet: run python3 tools/build.py'); }
+    const entry = staticEntry(file, st), head = { 'Content-Type': type, 'Cache-Control': 'no-cache', ETag: entry.etag, Vary: 'Accept-Encoding', ...SEC };
+    const inm = String(req.headers['if-none-match'] || '');
+    if (inm && inm.split(',').some(t => t.trim().replace(/^W\//, '') === entry.etag)) { res.ttfbMs = res.elapsed(); res.writeHead(304, head); return res.end(); }
+    if (/\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+      let gz; try { gz = await entry.gz; } catch (err) { res.writeHead(500, SEC); return res.end('Could not read file'); }
+      res.ttfbMs = res.elapsed(); res.writeHead(200, { ...head, 'Content-Encoding': 'gzip', 'Content-Length': gz.length });
+      return res.end(req.method === 'HEAD' ? undefined : gz);
+    }
+    res.ttfbMs = res.elapsed(); res.writeHead(200, { ...head, 'Content-Length': st.size });
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(full).on('error', () => res.destroy()).pipe(res);
   });
 }
+// gzip the game pages at startup so the first visitor does not wait for it
+function warmStatic() { for (const file of new Set(['dist/gbquest.html', 'dist/gbquest-fullscreen.html', 'dist/atlas.html'])) fs.stat(path.join(ROOT, file), (e, st) => { if (!e && st.isFile()) staticEntry(file, st).gz.catch(() => {}); }); }
 const STATIC = { '/': 'dist/gbquest.html', '/fullscreen': 'dist/gbquest-fullscreen.html', '/atlas': 'dist/atlas.html', '/dist/atlas.html': 'dist/atlas.html', '/admin': 'admin/controlplane.html', '/admin/': 'admin/controlplane.html', '/admin/controlplane.js': 'admin/controlplane.js' };
 
 // ---------------------------------------------------------------- routes
@@ -182,20 +225,25 @@ const server = http.createServer(async (req, res) => {
   // every response carries X-Request-Id so a player's error report can be matched to the debug log
   const reqId = crypto.randomBytes(6).toString('hex'), t0 = process.hrtime.bigint();
   res.setHeader('X-Request-Id', reqId);
+  res.elapsed = () => Number(process.hrtime.bigint() - t0) / 1e6;
   let who = null; // account name once the session is known
   res.on('finish', () => {
     if (p === '/api/stream') return; // long-lived; logged on open/close instead
-    const ms = Number(process.hrtime.bigint() - t0) / 1e6, line = { reqId, method: req.method, path: p, status: res.statusCode, ms: +ms.toFixed(1), ip };
+    const ms = res.elapsed(), line = { reqId, method: req.method, path: p, status: res.statusCode, ms: +ms.toFixed(1), ip };
     if (who) line.account = who;
+    // for game pages, downloading tens of megabytes takes as long as the player's connection needs; only the time
+    // the server took to start answering says whether the server was slow
+    if (res.ttfbMs != null) line.ttfbMs = +res.ttfbMs.toFixed(1);
+    const serverMs = res.ttfbMs != null ? res.ttfbMs : ms;
     if (res.statusCode >= 500) log.error('request failed', line);
-    else if (ms > SLOW_MS) log.warn('slow request', line);
+    else if (serverMs > SLOW_MS) log.warn('slow request', line);
     else log.debug('request', line);
   });
   const A = event => audit.record({ ip, reqId, ...event }); // audit with request context
   try {
     // Hide the control plane and deny every admin API route unless explicitly enabled.
     if (!ADMIN_ENABLED && (p === '/admin' || p.startsWith('/admin/') || p.startsWith('/api/admin/'))) return json(res, 404, { error: 'Not found.' });
-    if (req.method === 'GET' && STATIC[p]) return serveFile(res, STATIC[p], p.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8');
+    if ((req.method === 'GET' || req.method === 'HEAD') && STATIC[p]) return serveFile(req, res, STATIC[p], p.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8');
     if (!p.startsWith('/api/')) { res.writeHead(404, SEC); return res.end('Not found'); }
 
     if (p === '/api/health') return json(res, 200, { ok: true, game: 'LOST KINGDOM OF SHADOWBANE CHRONICLES', realm: db.realmSettings.realmName, maintenance: db.realmSettings.maintenance, players: clients.size, accounts: Object.keys(db.accounts).length, realms: REALMS });
@@ -284,7 +332,7 @@ const server = http.createServer(async (req, res) => {
         if (!hasPermission(sess.acct, 'settings.manage')) return deny();
         const input = await body(req);
         const current = db.realmSettings;
-        const booleanKeys = ['maintenance', 'registrationOpen', 'chatEnabled', 'marketplaceEnabled', 'invitesEnabled', 'socialEnabled', 'cloudSavesEnabled', 'leaderboardEnabled', 'livePlayEnabled'];
+        const booleanKeys = ['maintenance', 'registrationOpen', 'chatEnabled', 'marketplaceEnabled', 'invitesEnabled', 'socialEnabled', 'cloudSavesEnabled', 'leaderboardEnabled', 'livePlayEnabled', 'guildsEnabled', 'groupFinderEnabled'];
         const numberRanges = { maxListingsPerPlayer: [1, 20], maxInviteCodesPerPlayer: [1, 20], inviteTtlMinutes: [1, 60], chatMessagesPer10Seconds: [1, 20], maxSaveBytes: [65536, MAX_SAVE] };
         const allowed = new Set(['realmName', ...booleanKeys, ...Object.keys(numberRanges)]);
         if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !allowed.has(key))) return json(res, 400, { error: 'Unknown or invalid settings.' });
@@ -538,6 +586,108 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // realm guilds (backend/guilds.cjs): roster, ranks and a shared guild bank owned by the server
+    //   GET  /api/guilds                         directory: name, tag, member count
+    //   GET  /api/guild                          { guild | null, invites }
+    //   POST /api/guild                          { name, tag } -> found a guild
+    //   POST /api/guild/invite                   { username }        officer+
+    //   POST /api/guild/accept | /decline        { id }
+    //   POST /api/guild/leave | /disband
+    //   POST /api/guild/kick                     { accountId }       officer+, lower ranks only
+    //   POST /api/guild/rank                     { accountId, rank } leader; rank 'leader' passes leadership
+    //   POST /api/guild/motd                     { motd }            officer+
+    //   POST /api/guild/bank/deposit             { tab, item } | { gold }
+    //   POST /api/guild/bank/withdraw            { tab, slot, expect } | { gold }   daily caps by rank
+    if (p === '/api/guilds' || p.startsWith('/api/guild')) {
+      if (!db.realmSettings.guildsEnabled) return json(res, 503, { error: 'Realm guilds are disabled.' });
+      const me = { uid, name: sess.acct.name };
+      const names = () => Object.fromEntries(Object.values(db.accounts).map(a => [a.id, a.name]));
+      const reply = (r, okCode = 200) => {
+        if (!r.ok) return json(res, r.code || 400, { error: r.error });
+        const g = Guilds.guildFor(db, uid); save();
+        const out = { ...r, guild: g ? Guilds.publicGuild(g, uid, names()) : null };
+        if (g) for (const m of g.members) if (m.uid !== uid) sendToAccount(m.uid, 'guild', { changed: true });
+        return json(res, okCode, out);
+      };
+      if (p === '/api/guilds' && req.method === 'GET') return json(res, 200, { guilds: Object.values(db.guilds).map(g => ({ id: g.id, name: g.name, tag: g.tag, members: g.members.length })).sort((a, b) => b.members - a.members || a.name.localeCompare(b.name)).slice(0, 200) });
+      if (p === '/api/guild' && req.method === 'GET') {
+        const g = Guilds.guildFor(db, uid);
+        return json(res, 200, { guild: g ? Guilds.publicGuild(g, uid, names()) : null, invites: Guilds.invitesFor(db, uid) });
+      }
+      if (p === '/api/guild' && req.method === 'POST') {
+        const b = await body(req), r = Guilds.create(db, me, { name: b.name, tag: b.tag });
+        if (r.ok) A({ ...actx, action: 'guild.create', target: r.guild.name, details: { tag: r.guild.tag } });
+        return reply(r, 201);
+      }
+      if (p === '/api/guild/invite' && req.method === 'POST') {
+        const { username } = await body(req), target = own(db.accounts, String(username || '').toLowerCase());
+        if (!target) return json(res, 404, { error: 'Account not found.' });
+        const r = Guilds.invite(db, me, target.id, target.name);
+        if (r.ok) { const g = Guilds.guildFor(db, uid); sendToAccount(target.id, 'guild', { invite: { id: g.id, name: g.name, tag: g.tag, from: me.name } }); }
+        return reply(r);
+      }
+      if ((p === '/api/guild/accept' || p === '/api/guild/decline') && req.method === 'POST') {
+        const { id } = await body(req), gid = String(id || '');
+        return reply(p.endsWith('accept') ? Guilds.accept(db, me, gid) : Guilds.decline(db, me, gid));
+      }
+      if (p === '/api/guild/leave' && req.method === 'POST') {
+        const g = Guilds.guildFor(db, uid), others = g ? g.members.filter(m => m.uid !== uid).map(m => m.uid) : [];
+        const r = Guilds.leave(db, me); if (r.ok) for (const o of others) sendToAccount(o, 'guild', { changed: true });
+        return reply(r);
+      }
+      if (p === '/api/guild/disband' && req.method === 'POST') {
+        const g = Guilds.guildFor(db, uid), others = g ? g.members.filter(m => m.uid !== uid).map(m => m.uid) : [], gname = g && g.name;
+        const r = Guilds.disband(db, me);
+        if (r.ok) { A({ ...actx, action: 'guild.disband', target: gname }); for (const o of others) sendToAccount(o, 'guild', { disbanded: gname }); }
+        return reply(r);
+      }
+      if (p === '/api/guild/kick' && req.method === 'POST') {
+        const { accountId } = await body(req), target = String(accountId || '');
+        const r = Guilds.kick(db, me, target); if (r.ok) sendToAccount(target, 'guild', { removed: true });
+        return reply(r);
+      }
+      if (p === '/api/guild/rank' && req.method === 'POST') { const b = await body(req); return reply(Guilds.setRank(db, me, String(b.accountId || ''), String(b.rank || ''))); }
+      if (p === '/api/guild/motd' && req.method === 'POST') { const b = await body(req); return reply(Guilds.setMotd(db, me, b.motd)); }
+      if (p === '/api/guild/bank/deposit' && req.method === 'POST') {
+        const b = await body(req, 16384), r = Guilds.deposit(db, me, { tab: b.tab, item: b.item, gold: b.gold });
+        if (r.ok) A({ ...actx, action: 'guild.bank.deposit', target: Guilds.guildFor(db, uid).name, details: b.gold != null ? { gold: +b.gold } : { item: String(b.item.name || b.item.id || 'item').slice(0, 40) } });
+        return reply(r);
+      }
+      if (p === '/api/guild/bank/withdraw' && req.method === 'POST') {
+        const b = await body(req), r = Guilds.withdraw(db, me, { tab: b.tab, slot: b.slot, gold: b.gold, expect: b.expect });
+        if (r.ok) A({ ...actx, action: 'guild.bank.withdraw', target: Guilds.guildFor(db, uid).name, details: r.item ? { item: String(r.item.name || r.item.id || 'item').slice(0, 40) } : { gold: r.gold } });
+        return reply(r);
+      }
+      return json(res, 404, { error: 'No such guild operation.' });
+    }
+
+    // group finder (backend/groupfinder.cjs): real players queue by role and are matched into groups
+    //   GET  /api/finder            { status, queues }
+    //   POST /api/finder/join       { activity, mode: dungeon|trial|raid, roles: [tank|healer|damage], level }
+    //   POST /api/finder/leave
+    //   POST /api/finder/ready      { accept: true|false }
+    // Players hear about ready checks and finished groups on the live stream as 'finder' events.
+    if (p.startsWith('/api/finder')) {
+      if (!db.realmSettings.groupFinderEnabled) return json(res, 503, { error: 'The group finder is disabled.' });
+      if (p === '/api/finder' && req.method === 'GET') { finderEvents(Finder.tick(finder)); return json(res, 200, { status: Finder.status(finder, uid), queues: Finder.overview(finder) }); }
+      if (p === '/api/finder/join' && req.method === 'POST') {
+        const b = await body(req), r = Finder.join(finder, { uid, name: sess.acct.name }, { activity: b.activity, mode: b.mode, roles: b.roles, level: b.level });
+        if (!r.ok) return json(res, r.code, { error: r.error });
+        finderEvents(r.formed); return json(res, 200, { ok: true, status: Finder.status(finder, uid) });
+      }
+      if (p === '/api/finder/leave' && req.method === 'POST') {
+        const r = Finder.leave(finder, uid); if (!r.ok) return json(res, r.code, { error: r.error });
+        if (r.group) for (const m of r.group.members) sendToAccount(m.uid, 'finder', { type: 'member-left', group: r.group, name: sess.acct.name });
+        finderEvents(Finder.tick(finder)); return json(res, 200, { ok: true, left: r.left });
+      }
+      if (p === '/api/finder/ready' && req.method === 'POST') {
+        const b = await body(req), r = Finder.respond(finder, uid, b.accept === true);
+        if (!r.ok) return json(res, r.code, { error: r.error });
+        finderEvents(r.events); return json(res, 200, { ok: true, status: Finder.status(finder, uid) });
+      }
+      return json(res, 404, { error: 'No such group finder operation.' });
+    }
+
     // leaderboard
     if ((p === '/api/heroes' || p === '/api/hero') && !db.realmSettings.leaderboardEnabled) return json(res, 503, { error: 'The realm leaderboard is disabled.' });
     if (p === '/api/heroes' && req.method === 'GET') return json(res, 200, { heroes: Object.values(db.heroes).sort((a, b) => b.lvl - a.lvl || b.ach - a.ach).slice(0, 50) });
@@ -623,5 +773,6 @@ server.on('error', e => { log.error('server error', e); if (e.code === 'EADDRINU
 server.listen(PORT, HOST, () => {
   log.info(`LOST KINGDOM OF SHADOWBANE CHRONICLES realm server on http://${HOST}:${PORT}`, { accounts: Object.keys(db.accounts).length, logLevel: log.level, logDir: LOG_DIR, auditSeq: audit.seq });
   audit.record({ action: 'server.start', actor: 'system', details: { host: HOST, port: PORT, pid: process.pid } });
+  if (process.env.GBQ_WARM_STATIC !== '0') setTimeout(warmStatic, 1000).unref();
 });
 module.exports = server;

@@ -13,7 +13,8 @@
     "desktop:dev": "electron .",
     "desktop:dist": "electron-builder",
     "admin": "node backend/admin-cli.cjs",
-    "build:itch": "node tools/build-itch.cjs"
+    "build:itch": "node tools/build-itch.cjs",
+    "sql": "node tools/export_sql.cjs"
   },
   "main": "desktop/main.cjs",
   "devDependencies": {

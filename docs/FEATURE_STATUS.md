@@ -1,6 +1,6 @@
 # Feature status
 
-What is in the game today, what is still missing, and the trade-offs of building each missing piece. Last updated with commit `43cefdf`.
+What is in the game today, what is still missing, and the trade-offs of building each missing piece. Last updated on the `feature/realm-guilds-groupfinder-sql-atlas` branch (November 2026).
 
 ## In the game
 
@@ -13,25 +13,26 @@ What is in the game today, what is still missing, and the trade-offs of building
 | Creatures | 400 bestiary creatures, plus 300 evolution-line creatures across the 14 creature types |
 | Gear | 12 equipment slots, rarity 1-9, 23 gear tiers, 4 armour classes with sets, 14 weapon subclasses, named items, loot tables, stash |
 | Economy | 18 professions with perk trees, 90 raw materials, 207 tiered blueprints, trainers in every settlement, curator, auction house, direct trade |
-| Social / online | offline, page room and realm server modes, accounts, cloud saves, chat, PvP, guild and leaderboard basics |
+| Social / online | offline, page room and realm server modes, accounts, cloud saves, chat, PvP, leaderboard; **realm guilds** with ranks and a shared server-side guild bank; a **group finder** that matches real players by role with ready checks ([SERVER](SERVER.md)) |
 | Collection | 120 mounts, pets, titles, achievements, reputation, housing |
-| UI | SANCTUM dark UI with life/resource orbs, atlas, expansion maps, character creator |
+| UI | SANCTUM dark UI with life/resource orbs, atlas with a world switcher for all 9 maps, expansion maps, character creator |
+| Accessibility | remappable keys (SETTINGS > KEY BINDINGS), HIGH CONTRAST colour-blind-safe palette, text speed, brightness and contrast |
+| Data | MySQL / MariaDB schema and seed data for every catalogue, plus realm tables and a realm.json migration ([DATABASE](DATABASE.md)) |
 
 ## Not built yet
 
 | Feature | Pros | Cons |
 |---|---|---|
 | **Story cinematics** (prologue and campaign) | Gives the campaign weight; reuses the portraits and maps | Script writing per chapter; small screen limits how much fits |
-| **MySQL schema and seed data** (id, number, name for everything) | Real server persistence, admin tools, analytics; seed exports document every catalogue | A second source of truth to keep in sync; needs a migration and versioning plan |
+| **Realm server on MySQL** (the schema exists; the server still writes realm.json) | Scales past one process; real queries and backups | Async storage layer for every route; deployment needs a database |
 | **Class and subclass redesign** (more SRD-style subclasses) | Build variety; matches 5e expectations | Big balance surface; needs new spells and features per subclass |
 | **Higher-detail item and monster art** | The biggest visual upgrade, since the NES art is the weakest asset | Large volume (1,000+ sprites); quality varies when generated procedurally |
 | **Server-authoritative trading and combat** | Stops cheating in shared realms | Rewrites trust-on-client systems; more server code to host |
-| **Guild halls, guild banks, guild raids** | Long-term social glue | Needs reliable shared storage and permissions |
-| **Matchmaking and group finder across real players** | Real group content online | Needs enough concurrent players; queue and timeout logic |
+| **Guild halls and guild raids** (realm guilds and banks are built) | Long-term social glue | Hall maps and raid lockouts need shared server state |
+| **Group finder into the instance** (players are matched; they still start the dungeon as a party by hand) | One click from queue to dungeon | Needs the host-server battle flow to start an instance for a matched group |
 | **Seasonal content and battle pass** | Reasons to return; endgame loop | Ongoing content cost; must avoid pay-to-win |
-| **Atlas for the 8 new worlds** | One reference for every world | The atlas UI is built around a single map; needs a world switcher |
 | **Voice and music per expansion** | Each world feels distinct | 32+ new tracks to compose and store |
 | **Localization** (other languages) | Reaches more players | Every string needs extracting; the 6×9 font is ASCII only |
-| **Accessibility** (remappable pad, colour-blind palette, text scaling) | More players can play | Text scaling is hard on a fixed 160×144 screen |
+| **Text scaling** (key bindings and a high-contrast palette exist) | More players can read the game | Hard on a fixed 160×144 screen |
 
 **Legal note:** before any public or commercial release, check the "Shadowbane" trademark and keep the SRD 5.2 attribution in the credits.
